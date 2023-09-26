@@ -1,0 +1,130 @@
+/**** Start of imports. If edited, may not auto-convert in the playground. ****/
+var borneo = ee.FeatureCollection("projects/ee-bagasanin00/assets/kalimantan"),
+    img = ee.Image("UMD/hansen/global_forest_change_2022_v1_10");
+/***** End of imports. If edited, may not auto-convert in the playground. *****/
+// ON MAP
+
+// Tetapkan wilayah studi
+var ROI = borneo.filter("provinsi == 'KALIMANTAN BARAT'")
+Map.centerObject(ROI, 7)
+
+// Masukan dataset citra analisis
+var image = img.select(["lossyear"]).clip(ROI)
+var lossImage = img.select(['loss']).clip(ROI)
+var gainImage = img.select(['gain']).clip(ROI)
+var treeCover = img.select(['treecover2000']).clip(ROI)
+// var lossAreaImage = lossImage.multiply(ee.Image.pixelArea());
+
+// Metode and() untuk menggabungkan image loss dan gain
+var gainAndLoss = gainImage.and(lossImage)
+
+// Visualisasi
+Map.addLayer(treeCover.updateMask(treeCover),
+    {palette: ['green'], max: 100}, 'Forest Cover');
+
+Map.addLayer(lossImage.updateMask(lossImage),
+    {palette: ['FF0000']}, 'Loss');
+
+Map.addLayer(gainImage.updateMask(gainImage),
+    {palette: ['4361ee']}, 'Gain');
+
+Map.addLayer(gainAndLoss.updateMask(gainAndLoss),
+    {palette: 'FF00FF'}, 'Gain and Loss');
+
+// Legenda
+var panel = ui.Panel({
+  style: {
+    position: 'bottom-left',
+    padding: '5px;'
+  }
+})
+
+var title = ui.Label({
+  value: 'Keterangan',
+  style: {
+    fontSize: '15px',
+    fontWeight: 'bold',
+    margin: '1px;'
+  }
+})
+
+panel.add(title)
+
+var color =['green', 'red', '4361ee', 'FF00FF']
+var classification = ['Forest Cover','Loss','Gain','Gain and Loss']
+
+var list_legend = function(color, desc) {
+  var c = ui.Label({
+    style: {
+      backgroundColor: color,
+      padding: '10px',
+      margin: '4px'
+    }
+  })
+  var ds = ui.Label({
+    value: desc,
+    style: {
+      margin: '5px'
+    }
+  })
+  return ui.Panel({
+    widgets: [c, ds],
+    layout: ui.Panel.Layout.Flow('horizontal')
+  })
+}
+
+for (var i = 0; i < 4; i++) {
+  panel.add(list_legend(color[i], classification[i]));
+  }  
+
+Map.add(panel);  
+
+// ON CONSOLE
+
+// Buat list tahun yg akan di analisis (2001-2022)
+// Shoutout to Huacani, et al (2022) for the function script
+var years = ee.List.sequence(1,22)
+
+var masking = years.map(function(a){
+  var mask = image.eq(ee.Number(a)).selfMask()  
+  var h = mask.multiply(ee.Image.pixelArea())
+  var cal = h.reduceRegion({
+    reducer : ee.Reducer.sum(),
+    geometry: ROI,
+    scale : 30,
+    maxPixels : 1e12
+  })
+  return mask.set("area", ee.Number(cal.get("lossyear")).multiply(0.0000001))
+             .set("year", ee.String(ee.Number(a).add(2000).toInt()))
+})
+var final_col = ee.ImageCollection.fromImages(masking)
+print(final_col)
+
+var year2 = final_col.aggregate_array("year")
+var area = final_col.aggregate_array("area")
+//print(year2)
+//print(area)
+
+var final_lists = ee.Dictionary.fromLists(year2,area)
+print(final_lists)
+
+// Buat bagan
+var chart = ui.Chart.array.values({
+  array: final_lists.values(),
+  axis: 0,
+  xLabels: final_lists.keys()
+}).setChartType('ColumnChart')
+  .setOptions({
+    title: 'Yearly Forest Loss',
+    hAxis: {title: 'Year', format: '####'},
+    vAxis: {title: 'Area (Ha)'},
+    legend: { position: "none" },
+    lineWidth: 1,
+    pointSize: 3
+  });
+print(chart);
+
+
+
+
+
